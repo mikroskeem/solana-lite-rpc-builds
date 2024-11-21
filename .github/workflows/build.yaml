@@ -1,0 +1,84 @@
+name: Build Rust Project
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref'
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: "Build"
+    runs-on: "ubuntu-latest"
+    steps:
+      - id: "install-rust-toolchain"
+        name: "Install Rust toolchain"
+        uses: "dtolnay/rust-toolchain@stable"
+
+      - id: "checkout"
+        name: "Checkout code"
+        uses: "actions/checkout@v4"
+        with:
+          repository: "blockworks-foundation/lite-rpc"
+          filter: "tree:0"
+          ref: "${{ inputs.ref }}"
+
+      - id: "build"
+        name: "Build project"
+        env:
+          RUSTFLAGS: "--cfg tokio_unstable"
+        run: |
+          cargo build --release --bin lite-rpc --bin solana-lite-rpc-quic-forward-proxy
+
+          mkdir -p __output
+          cp -v target/release/lite-rpc __output/
+          cp -v target/release/solana-lite-rpc-quic-forward-proxy __output/
+          (cd __output && sha256sum *) > __output/SHA256SUMS
+
+
+      - id: "upload-artifacts"
+        name: "Upload artifacts"
+        uses: "actions/upload-artifact@v4"
+        with:
+          name: "build-artifacts"
+          path: |
+            __output/*
+          if-no-files-found: "error"
+          retention-days: 5
+
+  publish:
+    name: "Publish"
+    runs-on: "ubuntu-latest"
+    needs: "build"
+    permissions:
+      attestations: "write"
+      contents: "write"
+      id-token: "write"
+    steps:
+      - id: "download-artifact"
+        name: "Download artifacts"
+        uses: "actions/download-artifact@v4"
+        with:
+          name: "build-artifacts"
+          path: "artifacts"
+
+      - id: "publish"
+        name: "Publish Github release"
+        uses: "softprops/action-gh-release@v2"
+        with:
+          files: |
+            artifacts/*
+          tag_name: "ref-${{ inputs.ref }}"
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+
+      - id: "attest"
+        name: "Attest"
+        uses: "actions/attest-build-provenance@v1"
+        with:
+          subject-path: |
+            artifacts/*
