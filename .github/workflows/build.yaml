@@ -1,17 +1,33 @@
-name: Build Rust Project
+name: "Build blockworks-foundation/lite-rpc"
 
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Git ref'
+        description: "Git ref"
         required: true
-        type: string
+        type: "string"
 
 jobs:
   build:
-    name: "Build"
+    name: "Build (${{ matrix.target }})"
     runs-on: "ubuntu-latest"
+    strategy:
+      matrix:
+        target:
+          - "generic"
+          - "znver3"
+          - "znver4"
+        include:
+          - target: "generic"
+            rust_target: "x86_64-unknown-linux-gnu"
+            rustflags: "--cfg tokio_unstable -C target-cpu=x86-64-v3"
+          - target: "znver3"
+            rust_target: "x86_64-unknown-linux-gnu"
+            rustflags: "--cfg tokio_unstable -C target-cpu=znver3"
+          - target: "znver4"
+            rust_target: "x86_64-unknown-linux-gnu"
+            rustflags: "--cfg tokio_unstable -C target-cpu=znver4"
     steps:
       - id: "install-rust-toolchain"
         name: "Install Rust toolchain"
@@ -28,21 +44,21 @@ jobs:
       - id: "build"
         name: "Build project"
         env:
-          RUSTFLAGS: "--cfg tokio_unstable"
+          CARGO_INCREMENTAL: "0"
+          CARGO_BUILD_TARGET: "${{ matrix.rust_target }}"
+          RUSTFLAGS: "${{ matrix.rustflags }}"
         run: |
           cargo build --release --bin lite-rpc --bin solana-lite-rpc-quic-forward-proxy
 
           mkdir -p __output
-          cp -v target/release/lite-rpc __output/
-          cp -v target/release/solana-lite-rpc-quic-forward-proxy __output/
-          (cd __output && sha256sum *) > __output/SHA256SUMS
-
+          cp -v target/${{ matrix.rust_target }}/release/lite-rpc __output/lite-rpc-${{ matrix.target }}
+          cp -v target/${{ matrix.rust_target }}/release/solana-lite-rpc-quic-forward-proxy __output/solana-lite-rpc-quic-forward-proxy-${{ matrix.target }}
 
       - id: "upload-artifacts"
         name: "Upload artifacts"
         uses: "actions/upload-artifact@v4"
         with:
-          name: "build-artifacts"
+          name: "build-artifacts-${{ matrix.target }}"
           path: |
             __output/*
           if-no-files-found: "error"
@@ -57,19 +73,30 @@ jobs:
       contents: "write"
       id-token: "write"
     steps:
-      - id: "download-artifact"
-        name: "Download artifacts"
+      - id: "create-release-directory"
+        name: "Create release directory"
+        run: |
+          mkdir -p release
+
+      - id: "download-artifacts"
+        name: "Download all artifacts"
         uses: "actions/download-artifact@v4"
         with:
-          name: "build-artifacts"
-          path: "artifacts"
+          path: "release"
+          merge-multiple: true
+          pattern: "build-artifacts-*"
+
+      - id: "generate-checksum"
+        name: "Generate checksums"
+        run: |
+          (cd release; sha256sum *) > release/SHA256SUMS
 
       - id: "publish"
         name: "Publish Github release"
         uses: "softprops/action-gh-release@v2"
         with:
           files: |
-            artifacts/*
+            release/*
           tag_name: "ref-${{ inputs.ref }}"
           draft: false
           prerelease: false
@@ -81,4 +108,4 @@ jobs:
         uses: "actions/attest-build-provenance@v1"
         with:
           subject-path: |
-            artifacts/*
+            release/*
