@@ -89,7 +89,8 @@ jobs:
       - id: "generate-checksum"
         name: "Generate checksums"
         run: |
-          (cd release; sha256sum *) > release/SHA256SUMS
+          mkdir -p meta
+          (cd release; sha256sum *) > meta/SHA256SUMS
 
       - id: "publish"
         name: "Publish Github release"
@@ -97,6 +98,7 @@ jobs:
         with:
           files: |
             release/*
+            meta/*
           tag_name: "ref-${{ inputs.ref }}"
           draft: false
           prerelease: false
@@ -109,3 +111,4 @@ jobs:
         with:
           subject-path: |
             release/*
+            meta/*
